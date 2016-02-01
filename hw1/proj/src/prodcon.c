@@ -34,9 +34,6 @@
  *  - Real-time signal management
  *    -- CSCI 5103 > Examples > Signal Management > realtime.c
  *
- * Optimizations
- *  - Producer reads file into into local buffer if shared memory not consumed
- *  - Consumer reads shared memory into local buffer then sends signal to indicate consumed
 **********************************************************************************************/
 
 #include <stdlib.h>
@@ -52,7 +49,7 @@
 #include <errno.h>
 #include <signal.h>
 
-#define DEBUG
+//#define DEBUG
 #define BUFSIZE 1024
 
 /* Prototypes */
@@ -75,6 +72,7 @@ static SH_MEM_OBJ *shmem_ptr;  /* pointer to shared segment */
 static key_t       key;        /* key to access shared memory segments */
 static int         flag;       /* r/w permissions */
 
+static int consumer_done;
 static int fdout;              /* output file descriptor */
 
 int main(int argc, char * argv[])
@@ -95,9 +93,9 @@ int main(int argc, char * argv[])
         perror("shmget failed");
         exit(1);
     }
-    #ifdef DEBUG
+#ifdef DEBUG
         printf("Main:     Got shmem id = %d\n", shmem_id);
-    #endif
+#endif
 
     /* Now attach the new segment into my address space.
         This will give me a (void *) pointer to the shared memory area.
@@ -111,9 +109,9 @@ int main(int argc, char * argv[])
         perror("shmat failed");
         exit(2);
     }
-    #ifdef DEBUG
+#ifdef DEBUG
         printf("Main:     Got ptr = %p\n", shmem_ptr);
-    #endif
+#endif
 
 
     /* Setup handler for user signals SIGUSR1 and SIGUSR2
@@ -160,7 +158,7 @@ int main(int argc, char * argv[])
         producer(pid, argc, argv);
     }
 
-    printf("  Process ID: %ld exiting\n", (long)getpid());
+    printf("\tpid %d exiting\n", getpid());
     return EXIT_SUCCESS;
 }
 
@@ -170,8 +168,8 @@ void producer( pid_t ch_pid, int argc, char * argv[] )
     /*******************************************
      * Define producer (parent) process
      *******************************************/
+    printf("\tPRODUCER: pid = %d\n", getpid());
 
-    //signal( SIGUSR1, SIG_IGN );
     struct sigaction action;
     action.sa_handler = SIG_IGN;
     sigaction(SIGUSR1, &action, NULL);
@@ -201,16 +199,21 @@ void producer( pid_t ch_pid, int argc, char * argv[] )
     while ( (count=read(fdin, buffer, BUFSIZE)) > 0 )
     {
         /* Copy data from local buffer into shared memory */
-        sprintf(shmem_ptr->buf, "%s", buffer);
-
-        printf("PRODUCER: wrote %zu bytes to shared mem\n", count);
+        memcpy( shmem_ptr->buf, buffer, count );
+#ifdef DEBUG
+            printf("PRODUCER: wrote %zu bytes to shared mem\n", count);
+#endif
 
         /* Send signal to consumer */
-        printf("PRODUCER: signal Consumer that shared memory ready to read\n");
+#ifdef DEBUG
+            printf("PRODUCER: signal Consumer that shared memory ready to read\n");
+#endif
         send_rt_signal( ch_pid, SIGUSR1, (int)count );
 
         /* Suspend until signal received from consumer */
+#ifdef DEBUG
         printf("PRODUCER: suspend until signal received from Consumer...\n");
+#endif
         sigsuspend( &mask );  /* No signals are masked while waiting */
     }
 
@@ -222,11 +225,15 @@ void producer( pid_t ch_pid, int argc, char * argv[] )
     close(fdin);
 
     /* Send signal to consumer */
+#ifdef DEBUG
     printf("PRODUCER: signal Consumer that Producer has reached EOF\n");
+#endif
     send_rt_signal( ch_pid, SIGUSR1, -1 );
 
     /* Suspend until signal received from consumer */
+#ifdef DEBUG
     printf("PRODUCER: suspend until signal received from Consumer...\n");
+#endif
     sigsuspend( &mask );  /* No signals are masked while waiting */
 }
 
@@ -236,6 +243,8 @@ void consumer( void )
     /*******************************************
      * Define consumer (child) process
      *******************************************/
+    printf("\tCONSUMER: pid = %d\n", getpid());
+    consumer_done = 0;
 
     struct sigaction action;
     action.sa_handler = SIG_IGN;
@@ -252,9 +261,9 @@ void consumer( void )
         perror("child shmget failed");
         exit(1);
     }
-    #ifdef DEBUG
+#ifdef DEBUG
         printf("Consumer: Got shmem id = %d\n", shmem_id);
-    #endif
+#endif
 
     /* Now attach this segment into the child address space */
         shmem_ptr = shmat (shmem_id, (void *) NULL, flag);
@@ -263,9 +272,9 @@ void consumer( void )
         perror("child shmat failed");
         exit(2);
     }
-    #ifdef DEBUG
+#ifdef DEBUG
         printf("Consumer: Got ptr = %p\n", shmem_ptr);
-    #endif
+#endif
 
 
     /* open output file */
@@ -281,11 +290,35 @@ void consumer( void )
     /* Suspend until signal received from producer */
     sigset_t mask;
     sigemptyset ( &mask );
-    for(;;)
+
+    while ( consumer_done == 0 )
     {
+#ifdef DEBUG
         printf("CONSUMER: suspend until signal received from Producer...\n");
+#endif
         sigsuspend( &mask );  /* No signals are masked while waiting */
     }
+
+
+    /* close the file */
+    close(fdout);
+
+    /* compute metrics from data transfer */
+    struct timespec ts_now;
+    float           d_xfr_t;
+
+    clock_gettime( CLOCK_MONOTONIC, &ts_now );
+    d_xfr_t = diff_time( &(shmem_ptr->ts), &ts_now );
+    printf("\tData transfer completed in %f ms\n", d_xfr_t);
+
+    /* done with the program, so detach the shared segment */
+    shmdt( (void *)shmem_ptr);
+
+    /* send signal to producer to indicate transfer complete */
+#ifdef DEBUG
+    printf("CONSUMER: signal Producer that data transfer is complete\n");
+#endif
+    send_rt_signal( getppid(), SIGUSR2, 0 );
 }
 
 
@@ -293,7 +326,9 @@ void consumer( void )
 void sig_hdlr_usr(int signal, siginfo_t *info, void *arg __attribute__ ((__unused__)))
 {
     int val = info->si_value.sival_int;
+#ifdef DEBUG
     printf("sig_hdlr_usr: received signal %d with value %d\n", signal, val);
+#endif
 
     if ( signal == SIGUSR1 )
     {
@@ -305,35 +340,20 @@ void sig_hdlr_usr(int signal, siginfo_t *info, void *arg __attribute__ ((__unuse
                 perror("Error writing" );
                 exit(3);
             }
+#ifdef DEBUG
             printf("CONSUMER: wrote %d bytes to output file \n", val);
+#endif
 
             /* Send signal to parent */
+#ifdef DEBUG
             printf("CONSUMER: signal Producer that shared memory has been consumed\n");
+#endif
             send_rt_signal( getppid(), SIGUSR2, 1 );
         }
         else
         {
-            /* close the file */
-            close(fdout);
-
-            /* compute metrics from data transfer */
-            struct timespec ts_now;
-            float           d_xfr_t;
-
-            clock_gettime( CLOCK_MONOTONIC, &ts_now );
-            d_xfr_t = diff_time( &(shmem_ptr->ts), &ts_now );
-            printf("CONSUMER: time spent on data transfer: %f ms\n", d_xfr_t);
-
-            /* done with the program, so detach the shared segment and terminate */
-            shmdt( (void *)shmem_ptr);
-
-            /* send signal to producer to indicate transfer complete */
-            printf("CONSUMER: signal Producer that data transfer is complete\n");
-            send_rt_signal( getppid(), SIGUSR2, 0 );
-
-            /* terminate consumer process */
-            printf("  Process ID: %ld exiting\n", (long)getpid());
-            kill(getpid(), SIGINT);
+            /* Producer signaled data transfer complete */
+            consumer_done = 1;
         }
     }
     else if ( signal == SIGUSR2 )
@@ -345,10 +365,10 @@ void sig_hdlr_usr(int signal, siginfo_t *info, void *arg __attribute__ ((__unuse
         }
         else
         {
-            /* Consumer indicating that data transfer is complete */
+            /* Consumer signaled data transfer complete */
 
-            /* done with the program, so detach the shared segment and terminate */
-            shmdt( (void *)shmem_ptr);
+            /* done with the program, so detach the shared segment */
+            shmdt((void *)shmem_ptr);
 
             /* The following is one way of destroying the shared memory segment
             and returning it to the system. I can do this safely here, because
@@ -357,11 +377,7 @@ void sig_hdlr_usr(int signal, siginfo_t *info, void *arg __attribute__ ((__unuse
             the memory are known to have detached the segment using shmdt(). Look
             up the shmctl man page for details.
             */
-            shmctl (shmem_id, IPC_RMID, NULL);
-
-            /* terminate producer process */
-            printf("  Process ID: %ld exiting\n", (long)getpid());
-            kill(getpid(), SIGINT);
+            shmctl(shmem_id, IPC_RMID, NULL);
         }
     }
 
