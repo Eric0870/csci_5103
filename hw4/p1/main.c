@@ -4,7 +4,7 @@
  Name               : John Erickson
  Student id         : 2336359
  x500 id            : eric0870
- CSELABS machine    : ??
+ CSELABS machine    : csel-kh4250-03.cselabs.umn.edu
  ============================================================================*/
 
 /**********************************************************************************************
@@ -105,7 +105,7 @@ int main( int argc, char *argv[] )
     if ( err )
         printf("Can't create consumer thread! \n");
 
-    /* wait on producer threads to complete before exiting */
+    /* wait on producer and consumer threads to complete before exiting */
     pthread_join( tid_black, NULL );
     pthread_join( tid_green, NULL );
     pthread_join( tid_cons, NULL );
