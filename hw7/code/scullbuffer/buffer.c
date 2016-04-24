@@ -16,28 +16,18 @@
  *  - ...
  *
  * Code reuse
- *  - ...
+ *  - bare scull and scullpipe drivers
+ *    -- from the book "Linux Device Drivers" by Alessandro Rubini and Jonathan Corbet,
+ *       published by O'Reilly & Associates.
+ *    -- I understand the intention of the assignment was to gain experience with Linux
+ *       drive development. However, it seemed like it would be wasteful to ignore the
+ *       opportunity for reuse of the scullpiper driver. Thus, I decided to make complete
+ *       reuse of the bare scull driver and substantial reuse of the scullpipe driver.
+ *       Even with this level of reuse, I believe I got a great introduction to Linux
+ *       driver development in this assignment.
  *
 **********************************************************************************************/
 
-
-
-/*
- * pipe.c -- fifo driver for scull
- *
- * Copyright (C) 2001 Alessandro Rubini and Jonathan Corbet
- * Copyright (C) 2001 O'Reilly & Associates
- *
- * The source code in this file can be freely used, adapted,
- * and redistributed in source or binary form, so long as an
- * acknowledgment appears in derived source files.  The citation
- * should list that the code comes from the book "Linux Device
- * Drivers" by Alessandro Rubini and Jonathan Corbet, published
- * by O'Reilly & Associates.   No warranty is attached;
- * we cannot take responsibility for errors or fitness for use.
- *
- */
- 
 #include <linux/sched.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -67,22 +57,30 @@ struct scull_buffer {
 };
 
 /* parameters */
-static int scull_p_nr_devs = SCULL_P_NR_DEVS;	/* number of buffer devices */
-int scull_p_buffer =  SCULL_P_BUFFER;	/* buffer size */
-dev_t scull_p_devno;			/* Our first device number */
-
-module_param(scull_p_nr_devs, int, 0);	/* FIXME check perms */
-module_param(scull_p_buffer, int, 0);
-
+static int scull_p_nr_devs    = SCULL_P_NR_DEVS;	    /* number of devices */
+static int scullbuffer_nitems = SCULLBUFFER_DNITEMS;    /* num items, static allocation because its a module parameter */
+dev_t scull_p_devno;			                        /* Our first device number */
 static struct scull_buffer *scull_p_devices;
 
+module_param(scull_p_nr_devs, int, S_IRUGO);
+module_param(scullbuffer_nitems, int, S_IRUGO);
+
+/* prototypes */
 static int spacefree(struct scull_buffer *dev);
 /*
  * Open and close
  */
 static int scull_p_open(struct inode *inode, struct file *filp)
 {
-	struct scull_buffer *dev;
+    struct scull_buffer *dev;
+
+    // create scullbuffer with size equal to item size * number of items
+    // add one more byte to allow for wp to always be 'less than' rp
+    //int scullbuffer_size = SCULLBUFFER_ITEM_SIZE * scullbuffer_nitems + 1;  /* buffer size */
+    int scullbuffer_size = SCULLBUFFER_ITEM_SIZE * scullbuffer_nitems;  /* buffer size */
+
+    // DEBUG
+    printk( KERN_ALERT "scullbuffer size = %d", scullbuffer_size );
 
 	dev = container_of(inode->i_cdev, struct scull_buffer, cdev);
 	filp->private_data = dev;
@@ -91,13 +89,13 @@ static int scull_p_open(struct inode *inode, struct file *filp)
 		return -ERESTARTSYS;
 	if (!dev->buffer) {
 		/* allocate the buffer */
-		dev->buffer = kmalloc(scull_p_buffer, GFP_KERNEL);
+		dev->buffer = kmalloc(scullbuffer_size, GFP_KERNEL);
 		if (!dev->buffer) {
 			up(&dev->sem);
 			return -ENOMEM;
 		}
 	}
-	dev->buffersize = scull_p_buffer;
+	dev->buffersize = scullbuffer_size;
 	dev->end = dev->buffer + dev->buffersize;
 	dev->rp = dev->wp = dev->buffer; /* rd and wr from the beginning */
 
@@ -120,10 +118,21 @@ static int scull_p_release(struct inode *inode, struct file *filp)
 		dev->nreaders--;
 	if (filp->f_mode & FMODE_WRITE)
 		dev->nwriters--;
-	if (dev->nreaders + dev->nwriters == 0) {
+	if (dev->nreaders + dev->nwriters == 0)
+	{
 		kfree(dev->buffer);
 		dev->buffer = NULL; /* the other fields are not checked on open */
 	}
+	else if ( dev->nreaders == 0 )
+	{
+	    // if no consumers, signal any sleeping producers
+	    wake_up_interruptible(&dev->outq);
+	}
+    else if ( dev->nwriters == 0 )
+    {
+        // if no consumers, signal any sleeping consumers
+        wake_up_interruptible(&dev->inq);
+    }
 	up(&dev->sem);
 	return 0;
 }
@@ -144,6 +153,11 @@ static ssize_t scull_p_read(struct file *filp, char __user *buf, size_t count, l
 		up(&dev->sem); /* release the lock */
 		if (filp->f_flags & O_NONBLOCK)
 			return -EAGAIN;
+
+		if ( dev->nwriters == 0 )
+		    return 0; // buffer is empty and
+		              // there are no producer processes that currently have device open for writing
+
 		PDEBUG("\"%s\" reading: going to sleep\n", current->comm);
 		if (wait_event_interruptible(dev->inq, (dev->rp != dev->wp)))
 			return -ERESTARTSYS; /* signal: tell the fs layer to handle it */
@@ -175,16 +189,28 @@ static ssize_t scull_p_read(struct file *filp, char __user *buf, size_t count, l
  * error the semaphore will be released before returning. */
 static int scull_getwritespace(struct scull_buffer *dev, struct file *filp)
 {
-	while (spacefree(dev) == 0) { /* full */
+	while ( spacefree(dev) < SCULLBUFFER_ITEM_SIZE ) { /* full */
 		DEFINE_WAIT(wait);
 		
+		// release semaphore
 		up(&dev->sem);
+
+		// confirm ok to block
 		if (filp->f_flags & O_NONBLOCK)
 			return -EAGAIN;
+
+		// we're here because the buffer is full, any consumers out there?
+		if ( dev->nreaders == 1 )
+            return 0;   // buffer is full and
+                        // there are no comsumer processes that currently have device open for reading
+		                // compare nreaders to 1 because producer will open device in read/write mode
+
 		PDEBUG("\"%s\" writing: going to sleep\n",current->comm);
 		prepare_to_wait(&dev->outq, &wait, TASK_INTERRUPTIBLE);
-		if (spacefree(dev) == 0)
+		if ( spacefree(dev) < SCULLBUFFER_ITEM_SIZE )
 			schedule();
+
+		// awake, make sure its because there is room in the buffer....
 		finish_wait(&dev->outq, &wait);
 		if (signal_pending(current))
 			return -ERESTARTSYS; /* signal: tell the fs layer to handle it */
@@ -216,11 +242,24 @@ static ssize_t scull_p_write(struct file *filp, const char __user *buf, size_t c
 		return result; /* scull_getwritespace called up(&dev->sem) */
 
 	/* ok, space is there, accept something */
+	PDEBUG("DEBUG: count from call = %d \n", (int)count);
+
+
+
 	count = min(count, (size_t)spacefree(dev));
+
+
+
+	PDEBUG("DEBUG: count from spacefree = %d \n", (int)count);
+
+	PDEBUG("DEBUG: wp= %p, rp= %p \n", dev->wp, dev->rp);
+
+
 	if (dev->wp >= dev->rp)
 		count = min(count, (size_t)(dev->end - dev->wp)); /* to end-of-buf */
 	else /* the write pointer has wrapped, fill up to rp-1 */
 		count = min(count, (size_t)(dev->rp - dev->wp - 1));
+
 	PDEBUG("Going to accept %li bytes to %p from %p\n", (long)count, dev->wp, buf);
 	if (copy_from_user(dev->wp, buf, count)) {
 		up (&dev->sem);
@@ -236,8 +275,30 @@ static ssize_t scull_p_write(struct file *filp, const char __user *buf, size_t c
 	wake_up_interruptible(&dev->inq);  /* blocked in read() and select() */
 
 	PDEBUG("\"%s\" did write %li bytes\n",current->comm, (long)count);
+
+	PDEBUG("Wrote item: %s\n", buf);
 	return count;
 }
+
+
+
+//ssize_t scull_b_write( const char __user *buf )
+//{
+//    struct file *filp;
+//    size_t count;
+//    ssize_t temp;
+//
+//    filp = // hardcode this to device 0 for now
+//    count = SCULLBUFFER_ITEM_SIZE;
+//
+//
+//    temp = scull_p_write( filp, buf, count );
+//
+//    return 0;
+//}
+
+
+
 
 static unsigned int scull_p_poll(struct file *filp, poll_table *wait)
 {
@@ -269,6 +330,7 @@ struct file_operations scull_buffer_fops = {
 	.llseek =	no_llseek,
 	.read =		scull_p_read,
 	.write =	scull_p_write,
+	//.write =    scull_b_write,
 	.poll =		scull_p_poll,
 	.open =		scull_p_open,
 	.release =	scull_p_release,

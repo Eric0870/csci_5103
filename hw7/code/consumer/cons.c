@@ -32,18 +32,17 @@
 int main( int argc, char *argv[] )
 {
     int fid, nbytes, ii, nitems, len, done;
-    char item[32], scntr[16], *ptag, *sitems;
-    static long int icntr = 0;
+    char item[32], *sitems;
 
     // usage
-    if ( argc != 3 )
+    if ( argc != 2 )
     {
-        printf( "Usage: ./prod <num items> <producer tag> \n" );
+        printf( "Usage: ./prod <num items> \n" );
         exit( 1 );
     }
 
-    // open device for read and write
-    if ( (fid = open("/dev/scullbuffer0", O_RDWR)) < 0 )
+    // open device for read
+    if ( (fid = open("/dev/scullbuffer0", O_RDONLY)) < 0 )
     {
         printf( "Unable to open /dev/scullbuffer0 \n" );
         exit( 1 );
@@ -51,7 +50,6 @@ int main( int argc, char *argv[] )
 
     // parse command line inputs
     sitems = argv[1];
-    ptag   = argv[2];
 
     // get number of items from command line argument
     len    = strlen(sitems);
@@ -61,53 +59,28 @@ int main( int argc, char *argv[] )
         nitems += ( sitems[ii] - '0' ) * (int)pow( 10.0, (double)(len-ii-1) );
     }
 
-    // as a convenience, nap long enough for operator to start consumer process
+    // as a convenience, nap long enough for operator to start producer process
     sleep( 3 );
 
-    // loop to produce and deposit required number of items
+    // loop to consume required number of items
     done = false;
     for ( ii=0; ii<nitems; ii++ )
     {
-        // item is 32 bytes wide
-        // to guard against overflow, use the following design
-        //   - up to 18 bytes used to hold producer tag
-        //     -- preamble: "producer_tag_" (13 bytes)
-        //     -- cmd line: <argv[1]> (up to 5 bytes)
-        //     -- separate tag and counter with "_" (1 byte)
-        //   - up to 13 bytes uses to hold produced item counter
-        //   - 1 byte to hold NULL terminator for item
-
-        // initialization
-        memset( item,  '\0', sizeof(item) );
-        memset( scntr, '\0', sizeof(scntr) );
-
-        // prepend producer tag to item, including command line component
-        strcpy(  item, "producer_tag_" );
-        strncat( item, ptag, 5 );
-        strcat(  item, "_" );
-
-        // copy up to 13 digits of icntr to item
-        snprintf( scntr, 13, "%ld", ++icntr );
-        strcat( item, scntr );
-
-        // DEBUG
-        printf("PROD: created item %s \n", item);
-
-        // deposit item
-        nbytes = write( fid, item, 32 );
+        // consume item
+        nbytes = read( fid, item, 32 );
         switch ( nbytes )
         {
             case -1:
-                printf( "Error occured during write \n" );
+                printf( "Error occured during read \n" );
                 break;
             case 0:
-                printf( "Buffer is full, \n"
-                        "  and there are no consumer processes \n"
-                        "  that currently have scullbuffer open for reading \n" );
+                printf( "Buffer is empty, \n"
+                        "  and there are no producer processes \n "
+                        "  that currently have scullbuffer open for writing \n" );
                 done = true; // exit application
                 break;
             default:
-                printf( "PROD: %d bytes written to scullbuffer \n", nbytes );
+                printf( "CONS: %d bytes read from scullbuffer \n", nbytes );
         }
 
         if ( done )
@@ -115,6 +88,9 @@ int main( int argc, char *argv[] )
             printf("Exiting application early\n");
             break;
         }
+
+        // DEBUG
+        printf("CONS: consumed item %s \n", item);
     }
 
     // close device

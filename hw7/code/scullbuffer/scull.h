@@ -70,11 +70,14 @@
 #endif
 
 /*
- * The pipe device is a simple circular buffer. Here its default size
+ * The device is a simple circular buffer. Here its default size
  */
-#ifndef SCULL_P_BUFFER
-#define SCULL_P_BUFFER 4000
-#endif
+#define SCULLBUFFER_ITEM_SIZE 32
+#define SCULLBUFFER_DNITEMS 20
+
+//#ifndef SCULLBUFFER_DSIZE
+//#define SCULLBUFFER_DSIZE 4000
+//#endif
 
 /*
  * Representation of scull quantum sets.
@@ -108,7 +111,7 @@ extern int scull_nr_devs;
 extern int scull_quantum;
 extern int scull_qset;
 
-extern int scull_p_buffer;	/* pipe.c */
+//extern int scullbuffer_size;	/* buffer.c */
 
 /*
  * Prototypes for shared functions
