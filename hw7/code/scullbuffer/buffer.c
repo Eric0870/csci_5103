@@ -243,6 +243,7 @@ static int scull_getwritespace(struct scull_buffer *dev, struct file *filp)
 		// awake, make sure its because there is room in the buffer
 		finish_wait(&dev->outq, &wait);
 
+		// if woken, but there are no consumers, don't bother writing any more items to buffer
 		if ( dev->nreaders == 0 )
             return 1;
 
