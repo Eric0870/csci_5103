@@ -1,3 +1,25 @@
+/*============================================================================
+ CSci5103 Spring 2016
+ Assignment#        : 7
+ Name               : John Erickson
+ Student id         : 2336359
+ x500 id            : eric0870
+ CSELABS machine    : csel-kh4250-03.cselabs.umn.edu
+ Virtual machine    : csel-x34-umh.cselabs.umn.edu
+ ============================================================================*/
+
+/**********************************************************************************************
+ * Requirements
+ *  - implement character device driver
+ *
+ * Considerations
+ *  - none
+ *
+ * Code reuse
+ *  - this file reused as is from scull driver
+ *
+**********************************************************************************************/
+
 /*
  * main.c -- the bare scull char module
  *

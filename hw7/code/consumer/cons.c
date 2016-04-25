@@ -10,13 +10,14 @@
 
 /**********************************************************************************************
  * Requirements
- *  - ...
+ *  - consume items from scullbuffer0 device
+ *  - accept command line input for number of items to consume
  *
  * Considerations
- *  - ...
+ *  - exit gracefully (no crash or hang) regardless of buffer state
  *
  * Code reuse
- *  - ...
+ *  - none
  *
 **********************************************************************************************/
 
@@ -90,7 +91,6 @@ int main( int argc, char *argv[] )
             break;
         }
 
-        // DEBUG
         printf( "CONS: consumed item from buffer %s \n", item );
     }
     printf( "\nCONS: consumed %d items \n\n", ii );

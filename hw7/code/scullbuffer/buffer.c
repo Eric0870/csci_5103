@@ -10,23 +10,24 @@
 
 /**********************************************************************************************
  * Requirements
- *  - ...
+ *  - implement buffer device driver
+ *    -- buffer needs to hold objects of size 32 bytes
+ *  - accept command line input to specify number of items to contain in buffer
+ *    -- implement as module parameter
+ *  - supply scripts to load and unload the device driver
+ *  - implement open(), release(), read() and write() functions
  *
  * Considerations
- *  - ...
+ *  - none
  *
  * Code reuse
  *  - bare scull and scullpipe drivers
  *    -- from the book "Linux Device Drivers" by Alessandro Rubini and Jonathan Corbet,
  *       published by O'Reilly & Associates.
- *    -- I understand the intention of the assignment was to gain experience with Linux
- *       drive development. However, it seemed like it would be wasteful to ignore the
- *       opportunity for reuse of the scullpiper driver. Thus, I decided to make complete
- *       reuse of the bare scull driver and substantial reuse of the scullpipe driver.
- *       Even with this level of reuse, I believe I got a great introduction to Linux
- *       driver development in this assignment.
+ *    -- complete reuse of the bare scull driver
+ *    -- substantial reuse of the scullpipe driver, tailoring for the assignment as needed
  *
-**********************************************************************************************/
+ **********************************************************************************************/
 
 #include <linux/sched.h>
 #include <linux/module.h>
@@ -75,8 +76,6 @@ static int scull_p_open(struct inode *inode, struct file *filp)
     struct scull_buffer *dev;
 
     // create scullbuffer with size equal to item size * number of items
-    // add one more byte to allow for wp to always be 'less than' rp
-    //int scullbuffer_size = SCULLBUFFER_ITEM_SIZE * scullbuffer_nitems + 1;  /* buffer size */
     int scullbuffer_size = SCULLBUFFER_ITEM_SIZE * scullbuffer_nitems;  /* buffer size */
 
     // DEBUG
@@ -100,7 +99,6 @@ static int scull_p_open(struct inode *inode, struct file *filp)
 	dev->rp = dev->wp = dev->buffer; /* rd and wr from the beginning */
 
 	/* use f_mode,not  f_flags: it's cleaner (fs/open.c tells why) */
-	//if (filp->f_mode & FMODE_READ)
 	if ( (filp->f_mode & FMODE_READ) & !(filp->f_mode & FMODE_WRITE))
 		dev->nreaders++;
 
@@ -119,7 +117,6 @@ static int scull_p_release(struct inode *inode, struct file *filp)
 
 	down(&dev->sem);
 
-	//if (filp->f_mode & FMODE_READ)
     if ( (filp->f_mode & FMODE_READ) & !(filp->f_mode & FMODE_WRITE))
 	{
 	    PDEBUG("DEBUG: consumer process releasing device \n");
@@ -233,7 +230,6 @@ static int scull_getwritespace(struct scull_buffer *dev, struct file *filp)
 		if ( dev->nreaders == 0 )
             return 1;   // buffer is full and
                         // there are no consumer processes that currently have device open for reading
-		                // compare nreaders to 1 because producer will open device in read/write mode
 
 		PDEBUG("\"%s\" writing: going to sleep\n",current->comm);
 		prepare_to_wait(&dev->outq, &wait, TASK_INTERRUPTIBLE);

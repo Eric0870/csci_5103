@@ -10,13 +10,15 @@
 
 /**********************************************************************************************
  * Requirements
- *  - ...
+ *  - produce items and deposit them in scullbuffer0 device
+ *  - accept command line input for number of items to produce
+ *  - accept command line input for producer tag
  *
  * Considerations
- *  - ...
+ *  - exit gracefully (no crash or hang) regardless of buffer state
  *
  * Code reuse
- *  - ...
+ *  - none
  *
 **********************************************************************************************/
 
@@ -93,7 +95,6 @@ int main( int argc, char *argv[] )
         snprintf( scntr, 13, "%ld", ++icntr );
         strcat( item, scntr );
 
-        // DEBUG
         printf( "PROD: created item %s \n", item );
 
         // deposit item
