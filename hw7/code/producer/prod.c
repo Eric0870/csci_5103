@@ -29,6 +29,8 @@
 #include <stdbool.h>
 #include <math.h>
 
+#define WAIT_TIME_SEC 2.0
+
 int main( int argc, char *argv[] )
 {
     int fid, nbytes, ii, nitems, len, done;
@@ -45,7 +47,7 @@ int main( int argc, char *argv[] )
     // open device for read and write
     if ( (fid = open("/dev/scullbuffer0", O_RDWR)) < 0 )
     {
-        printf( "Unable to open /dev/scullbuffer0 \n" );
+        printf( "PROD: Unable to open /dev/scullbuffer0 \n" );
         exit( 1 );
     }
 
@@ -60,10 +62,10 @@ int main( int argc, char *argv[] )
     {
         nitems += ( sitems[ii] - '0' ) * (int)pow( 10.0, (double)(len-ii-1) );
     }
-    printf("\nPROD: configured for %d items \n\n", nitems);
+    printf( "PROD: configured for %d items \n", nitems );
 
     // as a convenience, nap long enough for operator to start consumer process
-    sleep( 3 );
+    sleep( WAIT_TIME_SEC );
 
     // loop to produce and deposit required number of items
     done = false;
@@ -92,19 +94,17 @@ int main( int argc, char *argv[] )
         strcat( item, scntr );
 
         // DEBUG
-        printf("PROD: created item %s \n", item);
+        printf( "PROD: created item %s \n", item );
 
         // deposit item
         nbytes = write( fid, item, 32 );
         switch ( nbytes )
         {
             case -1:
-                printf( "Error occured during write \n" );
+                printf( "PROD: Error occured during write \n" );
                 break;
             case 0:
-                printf( "Buffer is full, \n"
-                        "  and there are no consumer processes \n"
-                        "  that currently have scullbuffer open for reading \n" );
+                printf( "PROD: Buffer full, and no consumer processes currently have scullbuffer open for reading \n" );
                 done = true; // exit application
                 break;
             default:
@@ -113,11 +113,11 @@ int main( int argc, char *argv[] )
 
         if ( done )
         {
-            printf("Exiting application early\n");
+            printf( "PROD: Exiting application early\n" );
             break;
         }
     }
-    printf("\nPROD: added %d items to buffer\n\n", ii);
+    printf( "\nPROD: added %d items to buffer\n\n", ii );
 
     // close device
     close( fid );

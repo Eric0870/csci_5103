@@ -1,0 +1,11 @@
+#!/bin/sh
+
+echo "\n\n******************************** executing test case 2 ********************************"
+echo "\tunloading, loading and setting permissions for scullbuffer device driver"
+sudo ../scullbuffer/scull_unload
+sudo ../scullbuffer/scull_load
+sudo chmod 777 /dev/scull*
+
+echo "\tspawning producer and consumer processes"
+../producer/prod 50 BLACK &
+../consumer/cons 10 &

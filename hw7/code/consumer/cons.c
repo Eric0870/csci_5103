@@ -29,6 +29,8 @@
 #include <stdbool.h>
 #include <math.h>
 
+#define WAIT_TIME_SEC 2.0
+
 int main( int argc, char *argv[] )
 {
     int fid, nbytes, ii, nitems, len, done;
@@ -44,7 +46,7 @@ int main( int argc, char *argv[] )
     // open device for read
     if ( (fid = open("/dev/scullbuffer0", O_RDONLY)) < 0 )
     {
-        printf( "Unable to open /dev/scullbuffer0 \n" );
+        printf( "CONS: Unable to open /dev/scullbuffer0 \n" );
         exit( 1 );
     }
 
@@ -58,10 +60,10 @@ int main( int argc, char *argv[] )
     {
         nitems += ( sitems[ii] - '0' ) * (int)pow( 10.0, (double)(len-ii-1) );
     }
-    printf("\nCONS: configured for %d items \n\n", nitems);
+    printf( "CONS: configured for %d items \n", nitems );
 
     // as a convenience, nap long enough for operator to start producer process
-    sleep( 3 );
+    sleep( WAIT_TIME_SEC );
 
     // loop to consume required number of items
     done = false;
@@ -72,12 +74,10 @@ int main( int argc, char *argv[] )
         switch ( nbytes )
         {
             case -1:
-                printf( "Error occured during read \n" );
+                printf( "CONS: Error occured during read \n" );
                 break;
             case 0:
-                printf( "Buffer is empty, \n"
-                        "  and there are no producer processes \n "
-                        "  that currently have scullbuffer open for writing \n" );
+                printf( "CONS: Buffer empty, and no producer processes currently have scullbuffer open for writing \n" );
                 done = true; // exit application
                 break;
             default:
@@ -86,14 +86,14 @@ int main( int argc, char *argv[] )
 
         if ( done )
         {
-            printf("Exiting application early\n");
+            printf( "CONS: Exiting application early\n" );
             break;
         }
 
         // DEBUG
-        printf("CONS: consumed item from buffer %s \n", item);
+        printf( "CONS: consumed item from buffer %s \n", item );
     }
-    printf("\nCONS: consumed %d items \n\n", ii);
+    printf( "\nCONS: consumed %d items \n\n", ii );
 
     // close device
     close( fid );
