@@ -100,10 +100,13 @@ static int scull_p_open(struct inode *inode, struct file *filp)
 	dev->rp = dev->wp = dev->buffer; /* rd and wr from the beginning */
 
 	/* use f_mode,not  f_flags: it's cleaner (fs/open.c tells why) */
-	if (filp->f_mode & FMODE_READ)
+	//if (filp->f_mode & FMODE_READ)
+	if ( (filp->f_mode & FMODE_READ) & !(filp->f_mode & FMODE_WRITE))
 		dev->nreaders++;
+
 	if (filp->f_mode & FMODE_WRITE)
 		dev->nwriters++;
+
 	up(&dev->sem);
 
 	return nonseekable_open(inode, filp);
@@ -112,28 +115,55 @@ static int scull_p_open(struct inode *inode, struct file *filp)
 static int scull_p_release(struct inode *inode, struct file *filp)
 {
 	struct scull_buffer *dev = filp->private_data;
+	int wake_cons=false, wake_prod=false;
 
 	down(&dev->sem);
-	if (filp->f_mode & FMODE_READ)
+
+	//if (filp->f_mode & FMODE_READ)
+    if ( (filp->f_mode & FMODE_READ) & !(filp->f_mode & FMODE_WRITE))
+	{
+	    PDEBUG("DEBUG: consumer process releasing device \n");
 		dev->nreaders--;
+	}
+
 	if (filp->f_mode & FMODE_WRITE)
-		dev->nwriters--;
+	{
+	    PDEBUG("DEBUG: producer process releasing device \n");
+	    dev->nwriters--;
+	}
+
 	if (dev->nreaders + dev->nwriters == 0)
 	{
+	    PDEBUG("DEBUG: last process to release device, freeing up buffer \n");
 		kfree(dev->buffer);
 		dev->buffer = NULL; /* the other fields are not checked on open */
 	}
 	else if ( dev->nreaders == 0 )
+    {
+        // if no consumers, signal any sleeping producers
+	    wake_prod = true;
+    }
+	else if ( dev->nwriters == 0 )
+    {
+        // if no producers, signal any sleeping consumers
+	    wake_cons = true;
+    }
+
+	up(&dev->sem);
+
+	if ( wake_prod )
 	{
 	    // if no consumers, signal any sleeping producers
+	    PDEBUG("DEBUG: no remaining consumers, waking sleeping producer \n");
 	    wake_up_interruptible(&dev->outq);
 	}
-    else if ( dev->nwriters == 0 )
+    if ( wake_cons )
     {
-        // if no consumers, signal any sleeping consumers
+        // if no producers, signal any sleeping consumers
+        PDEBUG("DEBUG: no remaining producers, waking sleeping consumer \n");
         wake_up_interruptible(&dev->inq);
     }
-	up(&dev->sem);
+
 	return 0;
 }
 
@@ -200,9 +230,9 @@ static int scull_getwritespace(struct scull_buffer *dev, struct file *filp)
 			return -EAGAIN;
 
 		// we're here because the buffer is full, any consumers out there?
-		if ( dev->nreaders == 1 )
-            return 0;   // buffer is full and
-                        // there are no comsumer processes that currently have device open for reading
+		if ( dev->nreaders == 0 )
+            return 1;   // buffer is full and
+                        // there are no consumer processes that currently have device open for reading
 		                // compare nreaders to 1 because producer will open device in read/write mode
 
 		PDEBUG("\"%s\" writing: going to sleep\n",current->comm);
@@ -210,10 +240,15 @@ static int scull_getwritespace(struct scull_buffer *dev, struct file *filp)
 		if ( spacefree(dev) < SCULLBUFFER_ITEM_SIZE )
 			schedule();
 
-		// awake, make sure its because there is room in the buffer....
+		// awake, make sure its because there is room in the buffer
 		finish_wait(&dev->outq, &wait);
+
+		if ( dev->nreaders == 0 )
+            return 1;
+
 		if (signal_pending(current))
 			return -ERESTARTSYS; /* signal: tell the fs layer to handle it */
+
 		if (down_interruptible(&dev->sem))
 			return -ERESTARTSYS;
 	}
@@ -238,22 +273,17 @@ static ssize_t scull_p_write(struct file *filp, const char __user *buf, size_t c
 
 	/* Make sure there's space to write */
 	result = scull_getwritespace(dev, filp);
+
+	// getwritespace returns 1 when buffer full and no consumers
+	if ( result == 1 )
+	    return 0;
+
+	// getwritespace returns error code if error occured, or zero otherwise
 	if (result)
 		return result; /* scull_getwritespace called up(&dev->sem) */
 
 	/* ok, space is there, accept something */
-	PDEBUG("DEBUG: count from call = %d \n", (int)count);
-
-
-
 	count = min(count, (size_t)spacefree(dev));
-
-
-
-	PDEBUG("DEBUG: count from spacefree = %d \n", (int)count);
-
-	PDEBUG("DEBUG: wp= %p, rp= %p \n", dev->wp, dev->rp);
-
 
 	if (dev->wp >= dev->rp)
 		count = min(count, (size_t)(dev->end - dev->wp)); /* to end-of-buf */
@@ -279,26 +309,6 @@ static ssize_t scull_p_write(struct file *filp, const char __user *buf, size_t c
 	PDEBUG("Wrote item: %s\n", buf);
 	return count;
 }
-
-
-
-//ssize_t scull_b_write( const char __user *buf )
-//{
-//    struct file *filp;
-//    size_t count;
-//    ssize_t temp;
-//
-//    filp = // hardcode this to device 0 for now
-//    count = SCULLBUFFER_ITEM_SIZE;
-//
-//
-//    temp = scull_p_write( filp, buf, count );
-//
-//    return 0;
-//}
-
-
-
 
 static unsigned int scull_p_poll(struct file *filp, poll_table *wait)
 {
@@ -330,7 +340,6 @@ struct file_operations scull_buffer_fops = {
 	.llseek =	no_llseek,
 	.read =		scull_p_read,
 	.write =	scull_p_write,
-	//.write =    scull_b_write,
 	.poll =		scull_p_poll,
 	.open =		scull_p_open,
 	.release =	scull_p_release,

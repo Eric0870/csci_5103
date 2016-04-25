@@ -58,6 +58,7 @@ int main( int argc, char *argv[] )
     {
         nitems += ( sitems[ii] - '0' ) * (int)pow( 10.0, (double)(len-ii-1) );
     }
+    printf("\nCONS: configured for %d items \n\n", nitems);
 
     // as a convenience, nap long enough for operator to start producer process
     sleep( 3 );
@@ -90,8 +91,9 @@ int main( int argc, char *argv[] )
         }
 
         // DEBUG
-        printf("CONS: consumed item %s \n", item);
+        printf("CONS: consumed item from buffer %s \n", item);
     }
+    printf("\nCONS: consumed %d items \n\n", ii);
 
     // close device
     close( fid );

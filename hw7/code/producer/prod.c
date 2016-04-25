@@ -60,6 +60,7 @@ int main( int argc, char *argv[] )
     {
         nitems += ( sitems[ii] - '0' ) * (int)pow( 10.0, (double)(len-ii-1) );
     }
+    printf("\nPROD: configured for %d items \n\n", nitems);
 
     // as a convenience, nap long enough for operator to start consumer process
     sleep( 3 );
@@ -116,6 +117,7 @@ int main( int argc, char *argv[] )
             break;
         }
     }
+    printf("\nPROD: added %d items to buffer\n\n", ii);
 
     // close device
     close( fid );

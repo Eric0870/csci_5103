@@ -13,6 +13,8 @@ fi
 
 # invoke insmod with all arguments we got
 # and use a pathname, as insmod doesn't look in . by default
+# a command similar to the following can be used to set the number of buffer items
+#   sudo ./scull_load scullbuffer_nitems=30
 /sbin/insmod ./$module.ko $* || exit 1
 
 # retrieve major number
