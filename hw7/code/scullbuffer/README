@@ -1,6 +1,16 @@
-Compiling and installing the scullpipe devices:
+/*============================================================================
+ CSci5103 Spring 2016
+ Assignment#        : 7
+ Name               : John Erickson
+ Student id         : 2336359
+ x500 id            : eric0870
+ CSELABS machine    : csel-kh4250-03.cselabs.umn.edu
+ Virtual machine    : csel-x34-umh.cselabs.umn.edu
+ ============================================================================*/
+
+Compiling and installing the scullbuffer devices:
 --------------------------------------------------
-1. Execute Make: 
+1. Execute Make from scullbuffer directory: 
    make
 2. If scull devices already exist then unload them first.
    sudo ./scull_unload
@@ -8,20 +18,57 @@ Compiling and installing the scullpipe devices:
 3. Load scull devices
    sudo ./scull_load
    This will create four scull devices (scull0, scull1, scull2, scull3), and four
-   scullpipe devices (scullpipe0, scullpipe1, scullpipe2, scullpipe3). 
+   scullbuffer devices (scullbuffer0, scullbuffer1, scullbuffer2, scullbuffer3). 
 4. Check that devices are properly created.
    ls -ltr /dev/scull*
 5. Change device permissions to 777
    sudo chmod 777 /dev/scull*
 
-Testing the functioning of scull pipe devices:
+Testing the functioning of scullbuffer devices:
 -------------------------------------------------
-- Open two terminals corresponding to two consumer processes.
-- On these terminal windows execute the following command: more /dev/scullpipe0
-  Both these processes will block as there is no data available in the pipe yet.
-- Open another terminal corresponding to the producer process. 
-  From this terminal window execute the following commands repeatedly:
-  echo "String 1" > /dev/scullpipe0
-  echo "String 2" > /dev/scullpipe0
-- You will see that each string is consumed by only one consumer.
-  Once a string is consumed, it is not available for other consumer.
+Test case descriptions and expected output extracted from assignment7.pdf
+    Testcase #1
+    ● Start a producer which will produce 50 items before exiting.
+    ● Start a consumer which will consume try to 50 items before exiting.
+    ● Both the producer and consumer should exit normally after producing and consuming all the items.
+    Testcase #2
+    ● Start a producer which will produce 50 items before exiting.
+    ● Start a consumer which will try to consume only 10 items before exiting.
+    ● After the consumer calls release(), the producer should not go to sleep when trying to write items into the
+    already full buffer, and should instead get a return value of 0 from the write() call. (Because the consumer
+    count is 0)
+    Testcase #3
+    ● Start a producer which will produce 50 items before exiting.
+    ● Start a consumer which will try to consume 100 items before exiting.
+    ● After the producer calls release(), the consumer should not go to sleep waiting for items to be inserted into
+    the buffer, and should instead get a return value of 0 from the read() call (Because the producer count is 0)
+    Testcase #4
+    ● Start two producers which will both produce 50 items each before exiting (total = 100 items).
+    ● Start a consumer which will try to consume 200 items before exiting.
+    ● All the producers and the consumer should exit normally after producing and consuming all the items.
+    Testcase #5
+    ● Start a producer which will produce 50 items before exiting.
+    ● Start two consumers which will both try to consume 25 items each before exiting.
+    ● All the consumers and the producer should exit normally after producing and consuming all the items.
+    Testcase #6
+    ● Start two producers which will both produce 50 items each before exiting.
+    ● Start a consumer which tries to consumes 5 items before exiting.
+    ● After the consumer calls release(), both the producers should be woken from sleep (if sleeping) and should
+    exit gracefully.
+    Testcase #7
+    ● Start two producers which will both produce 50 items each before exiting.
+    ● Start a consumer which tries to consume 200 items before exiting.
+    ● After the producer calls release(), the consumer should be woken from sleep (if sleeping) and should exit
+    gracefully.
+
+The following scripts are provided to execute the test cases noted above:
+- testcase_1
+- testcase_2
+- testcase_3
+- testcase_4
+- testcase_5
+- testcase_6
+- testcase_7
+
+To execute one of the test scripts (eg: testcase_1), from the scullbuffer directory:
+./testcase_1
